@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "exam-processor"
+version = "0.1.0"
+description = "A FastAPI service for processing and analyzing exam documents"
+authors = ["Shawgi Hafiz <shawgichan@gmail.com>"]
+license = "MIT"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.6"
+uvicorn = "^0.34.0"
+SQLAlchemy = "^2.0.36"
+alembic = "^1.14.0"
+pydantic = "^2.10.4"
+python-multipart = "^0.0.20"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-dotenv = "^1.0.1"
+
+[tool.poetry.dev-dependencies]
+pytest = "^8.3.4"
+pytest-cov = "^6.0.0"
+httpx = "^0.28.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
