@@ -11,16 +11,17 @@ else
 	POETRY_PATH = $(HOME)/.local/bin/poetry
 endif
 
-.PHONY: install dev-up clean help install-pyenv configure-pyenv install-python clean-pyenv install-build-deps run
+.PHONY: install dev-up clean help install-pyenv configure-pyenv install-python clean-pyenv install-build-deps run docker-clean
 
 help:
 	@echo "Available commands:"
-	@echo "  make install    - Install all dependencies"
-	@echo "  make dev-up     - Clean, rebuild, and run the Docker container"
-	@echo "  make run        - Run existing Docker container (builds if needed)"
-	@echo "  make clean      - Clean temporary files"
-	@echo "  make clean-pyenv - Remove existing pyenv installation"
-	@echo "  make help       - Show this help message"
+	@echo "  make install      - Install all dependencies"
+	@echo "  make dev-up       - Clean, rebuild, and run the Docker container"
+	@echo "  make run          - Run existing Docker container (builds if needed)"
+	@echo "  make docker-clean - Remove Docker container and image"
+	@echo "  make clean        - Clean temporary files"
+	@echo "  make clean-pyenv  - Remove existing pyenv installation"
+	@echo "  make help         - Show this help message"
 
 clean-pyenv:
 	@echo "Cleaning existing pyenv installation..."
@@ -111,6 +112,13 @@ run:
 	fi
 	docker run -d --name $(DOCKER_CONTAINER_NAME) -p 8000:8000 $(DOCKER_IMAGE_NAME)
 	@echo "Container is running on http://localhost:8000"
+
+docker-clean:
+	@echo "Cleaning Docker resources..."
+	-docker stop $(DOCKER_CONTAINER_NAME) 2>/dev/null || true
+	-docker rm $(DOCKER_CONTAINER_NAME) 2>/dev/null || true
+	-docker rmi $(DOCKER_IMAGE_NAME) 2>/dev/null || true
+	@echo "Docker cleanup complete"
 
 clean:
 	@echo "Cleaning temporary files..."
