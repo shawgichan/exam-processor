@@ -1,19 +1,57 @@
+SHELL := /bin/bash
+PYTHON_VERSION := 3.11.5
+PYENV_ROOT := $(HOME)/.pyenv
+PYENV_BIN := $(PYENV_ROOT)/bin/pyenv
+DOCKER_IMAGE_NAME := exam-processor
+DOCKER_CONTAINER_NAME := exam-processor-container
+
 ifeq ($(OS),Windows_NT)
 	POETRY_PATH = %APPDATA%\Python\Scripts\poetry
 else
 	POETRY_PATH = $(HOME)/.local/bin/poetry
 endif
 
-.PHONY: install dev-up clean help
+.PHONY: install dev-up clean help install-pyenv configure-pyenv install-python clean-pyenv install-build-deps run
 
 help:
 	@echo "Available commands:"
 	@echo "  make install    - Install all dependencies"
-	@echo "  make dev-up     - Start development server"
+	@echo "  make dev-up     - Clean, rebuild, and run the Docker container"
+	@echo "  make run        - Run existing Docker container (builds if needed)"
 	@echo "  make clean      - Clean temporary files"
+	@echo "  make clean-pyenv - Remove existing pyenv installation"
 	@echo "  make help       - Show this help message"
 
-install:
+clean-pyenv:
+	@echo "Cleaning existing pyenv installation..."
+	@rm -rf $(PYENV_ROOT)
+
+install-build-deps:
+	@echo "Installing Python build dependencies..."
+	@if command -v apt-get >/dev/null 2>&1; then \
+		sudo apt-get update && sudo apt-get install -y \
+			build-essential \
+			libssl-dev \
+			zlib1g-dev \
+			libbz2-dev \
+			libreadline-dev \
+			libsqlite3-dev \
+			curl \
+			libncursesw5-dev \
+			xz-utils \
+			tk-dev \
+			libxml2-dev \
+			libxmlsec1-dev \
+			libffi-dev \
+			liblzma-dev \
+			gcc; \
+	elif command -v brew >/dev/null 2>&1; then \
+		brew install openssl readline sqlite3 xz zlib; \
+	else \
+		echo "Please install Python build dependencies manually for your system"; \
+	fi
+
+install: clean-pyenv install-build-deps install-pyenv configure-pyenv install-python
 	@echo "Installing dependencies..."
 	@if command -v poetry >/dev/null 2>&1; then \
 		poetry install; \
@@ -32,9 +70,47 @@ install:
 		echo "Poppler: http://blog.alivate.com.au/poppler-windows/"; \
 	fi
 
+install-pyenv:
+	@echo "Installing pyenv..."
+	@curl https://pyenv.run | bash
+
+configure-pyenv:
+	@echo "Configuring pyenv..."
+	@if ! grep -q 'export PYENV_ROOT' ~/.bashrc; then \
+		echo 'export PYENV_ROOT="$$HOME/.pyenv"' >> ~/.bashrc; \
+		echo '[[ -d $$PYENV_ROOT/bin ]] && export PATH="$$PYENV_ROOT/bin:$$PATH"' >> ~/.bashrc; \
+		echo 'eval "$$(pyenv init -)"' >> ~/.bashrc; \
+		echo 'eval "$$(pyenv virtualenv-init -)"' >> ~/.bashrc; \
+	fi
+	@PYENV_ROOT="$(HOME)/.pyenv" PATH="$(HOME)/.pyenv/bin:$(PATH)" eval "$(pyenv init -)"
+
+install-python:
+	@echo "Installing Python $(PYTHON_VERSION)..."
+	@PYENV_ROOT="$(HOME)/.pyenv" PATH="$(HOME)/.pyenv/bin:$(PATH)" eval "$(pyenv init -)" && \
+		$(PYENV_BIN) install --skip-existing $(PYTHON_VERSION)
+	@PYENV_ROOT="$(HOME)/.pyenv" PATH="$(HOME)/.pyenv/bin:$(PATH)" eval "$(pyenv init -)" && \
+		$(PYENV_BIN) local $(PYTHON_VERSION)
+	@$(POETRY_PATH) config virtualenvs.prefer-active-python true
+
 dev-up:
-	@echo "Starting development server..."
-	poetry run uvicorn app.api.v1.endpoints.exam_processor:app --reload --host 0.0.0.0 --port 8000
+	@echo "Performing clean rebuild of Docker container..."
+	-docker stop $(DOCKER_CONTAINER_NAME) 2>/dev/null || true
+	-docker rm $(DOCKER_CONTAINER_NAME) 2>/dev/null || true
+	-docker rmi $(DOCKER_IMAGE_NAME) 2>/dev/null || true
+	docker build -t $(DOCKER_IMAGE_NAME) .
+	docker run -d --name $(DOCKER_CONTAINER_NAME) -p 8000:8000 $(DOCKER_IMAGE_NAME)
+	@echo "Container is running on http://localhost:8000"
+
+run:
+	@echo "Starting Docker container..."
+	-docker stop $(DOCKER_CONTAINER_NAME) 2>/dev/null || true
+	-docker rm $(DOCKER_CONTAINER_NAME) 2>/dev/null || true
+	@if ! docker images $(DOCKER_IMAGE_NAME) | grep -q $(DOCKER_IMAGE_NAME); then \
+		echo "Image not found, building..."; \
+		docker build -t $(DOCKER_IMAGE_NAME) .; \
+	fi
+	docker run -d --name $(DOCKER_CONTAINER_NAME) -p 8000:8000 $(DOCKER_IMAGE_NAME)
+	@echo "Container is running on http://localhost:8000"
 
 clean:
 	@echo "Cleaning temporary files..."
