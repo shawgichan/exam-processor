@@ -45,9 +45,14 @@ install-build-deps:
 			libxmlsec1-dev \
 			libffi-dev \
 			liblzma-dev \
-			gcc; \
+			gcc \
+			python3-dev \
+			python3-pip \
+			python3-setuptools \
+			libleptonica-dev \
+			pkg-config; \
 	elif command -v brew >/dev/null 2>&1; then \
-		brew install openssl readline sqlite3 xz zlib; \
+		brew install openssl readline sqlite3 xz zlib leptonica pkg-config; \
 	else \
 		echo "Please install Python build dependencies manually for your system"; \
 	fi
@@ -62,12 +67,18 @@ install: clean-pyenv install-build-deps install-pyenv configure-pyenv install-py
 	fi
 	@echo "Installing system dependencies..."
 	@if command -v apt-get >/dev/null 2>&1; then \
-		sudo apt-get update && sudo apt-get install -y tesseract-ocr poppler-utils; \
+		sudo apt-get update && sudo apt-get install -y \
+			tesseract-ocr \
+			tesseract-ocr-eng \
+			tesseract-ocr-ara \
+			poppler-utils \
+			libleptonica-dev; \
 	elif command -v brew >/dev/null 2>&1; then \
-		brew install tesseract poppler; \
+		brew install tesseract tesseract-lang poppler leptonica; \
 	else \
 		echo "Please install Tesseract OCR and Poppler manually:"; \
 		echo "Windows: https://github.com/UB-Mannheim/tesseract/wiki"; \
+		echo "         Download Arabic language data from https://github.com/tesseract-ocr/tessdata"; \
 		echo "Poppler: http://blog.alivate.com.au/poppler-windows/"; \
 	fi
 
@@ -99,7 +110,7 @@ dev-up:
 	-docker rm $(DOCKER_CONTAINER_NAME) 2>/dev/null || true
 	-docker rmi $(DOCKER_IMAGE_NAME) 2>/dev/null || true
 	docker build -t $(DOCKER_IMAGE_NAME) .
-	docker run -d --name $(DOCKER_CONTAINER_NAME) -p 8000:8000 $(DOCKER_IMAGE_NAME)
+	docker run -d --name $(DOCKER_CONTAINER_NAME) -p 8000:8000 -v $(PWD)/temp:/app/temp $(DOCKER_IMAGE_NAME)
 	@echo "Container is running on http://localhost:8000"
 
 run:
@@ -110,7 +121,7 @@ run:
 		echo "Image not found, building..."; \
 		docker build -t $(DOCKER_IMAGE_NAME) .; \
 	fi
-	docker run -d --name $(DOCKER_CONTAINER_NAME) -p 8000:8000 $(DOCKER_IMAGE_NAME)
+	docker run -d --name $(DOCKER_CONTAINER_NAME) -p 8000:8000 -v $(PWD)/temp:/app/temp $(DOCKER_IMAGE_NAME)
 	@echo "Container is running on http://localhost:8000"
 
 docker-clean:
