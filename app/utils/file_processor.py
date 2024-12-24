@@ -130,54 +130,124 @@ class PDFProcessor:
             raise
 
     def _extract_question_mc(self, text: str) -> List[Dict[str, Any]]:
-        """Extract multiple choice questions and their options"""
+        """Extract questions and organize them by exam parts"""
         questions = []
+        current_part = None
+        current_section = None
+        marks = None
         
-        # More inclusive patterns for Arabic text
-        question_patterns = [
-            # English style numbering
-            r'(?:(?:\d+|[١-٩]+)[\.|\-|\)]\s*)(.*?)(?=(?:\d+|[١-٩]+)[\.|\-|\)]|$)',
-            # Arabic style numbering
-            r'(?:(?:السؤال|سؤال)\s*(?:\d+|[١-٩]+)[:|\-|\)]\s*)(.*?)(?=(?:السؤال|سؤال)|$)',
-            # General numbered lines
-            r'^\s*(?:\d+|[١-٩]+)[\-|\)|\.](.+?)(?=^\s*(?:\d+|[١-٩]+)[\-|\)|\.]|\Z)'
+        # Split text into lines for better processing
+        lines = text.split('\n')
+        
+        # Patterns for identifying parts and sections
+        part_pattern = r'(?:PART|Part|SECTION)\s+(?:ONE|TWO|THREE|FOUR|[1-4]|[I-IV])'
+        marks_pattern = r'\((\d+)\s*marks?\)'
+        section_patterns = {
+            'comprehension': r'(?:read|READ)\s+the\s+(?:following|FOLLOWING)\s+(?:passage|PASSAGE)',
+            'short_answers': r'(?:short|SHORT)\s*(?:answer|ANSWER)',
+            'true_false': r'(?:true|TRUE)\s+(?:or|OR)\s+(?:false|FALSE)',
+            'mcq': r'(?:multiple|MULTIPLE)\s+(?:choice|CHOICE)|(?:circle|CIRCLE)\s+(?:the|THE)\s+(?:correct|CORRECT)',
+            'composition': r'(?:composition|COMPOSITION)',
+            'summary': r'(?:summary|SUMMARY)'
+        }
+        
+        question_start_patterns = [
+            r'^\s*\d+[\.\)]\s+',  # Numbered questions
+            r'^\s*[A-Za-z][\.\)]\s+',  # Lettered questions
+            r'(?:Answer|ANSWER)\s+the\s+following',  # Question prompts
         ]
         
+        # Option patterns including Arabic letters
         option_patterns = [
-            # Multiple styles of option markers
-            r'(?:[a-eA-E]|[أ-ه]|[ا-ى])[\.|\-|\)]\s*([^\n]+)',
-            r'(?:□|○|●)\s*([^\n]+)',
-            r'(?:\(\s*[a-eA-E]\s*\)|\{\s*[a-eA-E]\s*\})\s*([^\n]+)'
+            r'^(?:[a-eA-E]|[أ-ه])[\.|\-|\)]\s*(.+)',
+            r'^(?:[0-9]+)[\.|\-|\)]\s*(.+)',
+            r'^\s*(?:□|○|●)\s*(.+)'
         ]
         
-        # Try each question pattern
-        for pattern in question_patterns:
-            self.logger.debug(f"Trying question pattern: {pattern}")
-            matches = re.finditer(pattern, text, re.DOTALL | re.MULTILINE)
-            for match in matches:
-                q_content = match.group(1).strip()
-                self.logger.debug(f"Found question: {q_content[:100]}...")
-                
-                # Try each option pattern
-                options = []
-                for opt_pattern in option_patterns:
-                    opt_matches = re.findall(opt_pattern, q_content, re.MULTILINE)
-                    if opt_matches:
-                        self.logger.debug(f"Found options with pattern {opt_pattern}: {opt_matches}")
-                        options.extend(opt_matches)
-                
-                if options:
-                    questions.append({
-                        "question_text": q_content.split('\n')[0].strip(),
-                        "question_type": "multiple_choice",
-                        "marks": 1.0,
-                        "is_mandatory": True,
-                        "options": [{"option": chr(ord('a') + i), "text": opt.strip()} 
-                                  for i, opt in enumerate(options)]
-                    })
+        current_question = None
+        current_options = []
         
-        self.logger.debug(f"Total questions extracted: {len(questions)}")
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Check for part headers
+            part_match = re.search(part_pattern, line)
+            if part_match:
+                current_part = line
+                continue
+                
+            # Check for marks
+            marks_match = re.search(marks_pattern, line)
+            if marks_match:
+                marks = float(marks_match.group(1))
+                continue
+                
+            # Check for section headers
+            for section_name, pattern in section_patterns.items():
+                if re.search(pattern, line, re.IGNORECASE):
+                    current_section = section_name
+                    continue
+                    
+            # Check if line starts a new question
+            is_question = any(re.match(pattern, line) for pattern in question_start_patterns)
+            if is_question:
+                # Save previous question if exists
+                if current_question:
+                    questions.append({
+                        "question_text": current_question,
+                        "question_type": "multiple_choice" if current_options else "short_answer",
+                        "marks": marks if marks else 1.0,
+                        "is_mandatory": True,
+                        "options": [{"option": chr(ord('a') + i), "text": opt} 
+                                  for i, opt in enumerate(current_options)],
+                        "part": current_part,
+                        "section": current_section
+                    })
+                
+                current_question = line
+                current_options = []
+                continue
+                
+            # Check for options
+            for pattern in option_patterns:
+                option_match = re.match(pattern, line)
+                if option_match:
+                    option_text = option_match.group(1).strip()
+                    # Filter out handwritten answers (usually shorter and contain specific patterns)
+                    if not self._is_handwritten_answer(option_text):
+                        current_options.append(option_text)
+                    break
+        
+        # Add the last question if exists
+        if current_question:
+            questions.append({
+                "question_text": current_question,
+                "question_type": "multiple_choice" if current_options else "short_answer",
+                "marks": marks if marks else 1.0,
+                "is_mandatory": True,
+                "options": [{"option": chr(ord('a') + i), "text": opt} 
+                          for i, opt in enumerate(current_options)],
+                "part": current_part,
+                "section": current_section
+            })
+        
         return questions
+        
+    def _is_handwritten_answer(self, text: str) -> bool:
+        """Detect if text is likely a handwritten answer"""
+        # Patterns that suggest handwritten answers
+        handwritten_patterns = [
+            r'^[A-Za-z]$',  # Single letter answers
+            r'^\s*[√×✓]?\s*$',  # Check marks
+            r'^[0-9]+$',  # Single numbers
+            r'^\s*[\.]{3,}\s*$',  # Ellipsis or dotted lines
+            r'^\s*_+\s*$',  # Underscores
+            r'.*\(\s*✓\s*\).*',  # Circled answers
+        ]
+        
+        return any(re.match(pattern, text) for pattern in handwritten_patterns)
 
     def _extract_exam_info(self, text: str) -> Dict[str, Any]:
         """Extract exam information with enhanced Arabic support"""
@@ -231,10 +301,23 @@ class PDFProcessor:
                 self.logger.debug(f"Found exam type: {exam_type}")
                 break
         
+        # Add additional patterns for exam duration
+        time_patterns = [
+            r'(?:Time|Duration|الوقت|المدة)\s*:\s*(\d+)\s*(?:Hours?|Hrs?|ساعات?)',
+            r'(\d+)\s*(?:Hours?|Hrs?|ساعات?)'
+        ]
+        
+        duration = None
+        for pattern in time_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                duration = int(match.group(1))
+                self.logger.debug(f"Found duration: {duration} hours")
+                break
+        
         return {
-            "subject_name": subject_name or "Unknown Subject",
-            "academic_year": None,
+            "subject": subject_name,
+            "institution": institution,
             "exam_type": exam_type,
-            "semester": None,
-            "institution": institution or "Unknown Institution"
+            "duration": duration,
         }
